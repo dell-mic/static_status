@@ -46,6 +46,8 @@ jobs:
       # Run tests
       - name: 🛠️ Test
         run: bash test.sh
+      - name: 🛠️ Retry Test
+        run: bash test-retry.sh
 
       # View files
       - name: 📃 status_hostname_list.txt

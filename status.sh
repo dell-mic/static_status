@@ -127,6 +127,11 @@ MY_PING_COUNT=${MY_PING_COUNT:-"2"}
 # Duration we wait for response (only script)
 MY_SCRIPT_TIMEOUT=${MY_SCRIPT_TIMEOUT:-20}
 
+# Retry strategy for monitoring checks: none, linear or exponential.
+MY_RETRY_STRATEGY=${MY_RETRY_STRATEGY:-"none"}
+MY_RETRY_INTERVAL=${MY_RETRY_INTERVAL:-"1"}
+MY_RETRY_TOTAL=${MY_RETRY_TOTAL:-"3"}
+
 # Route to host
 MY_TRACEROUTE_HOST=${MY_TRACEROUTE_HOST:-"1.1.1.1"} # Cloudflare DNS
 # Sets the number of probe packets per hop
@@ -221,6 +226,9 @@ debug_variables() {
 	echo "MY_PING_TIMEOUT: $MY_PING_TIMEOUT"
 	echo "MY_PING_COUNT: $MY_PING_COUNT"
 	echo "MY_SCRIPT_TIMEOUT: $MY_SCRIPT_TIMEOUT"
+	echo "MY_RETRY_STRATEGY: $MY_RETRY_STRATEGY"
+	echo "MY_RETRY_INTERVAL: $MY_RETRY_INTERVAL"
+	echo "MY_RETRY_TOTAL: $MY_RETRY_TOTAL"
 	echo "MY_TRACEROUTE_HOST: $MY_TRACEROUTE_HOST"
 	echo "MY_TRACEROUTE_NQUERIES: $MY_TRACEROUTE_NQUERIES"
 	echo
@@ -254,6 +262,25 @@ function check_command() {
 function check_config() {
 	if [ ! -r "$1" ]; then
 		exit_with_failure "Can not read required configuration file '$1'"
+	fi
+}
+
+# validate_retry_config() checks if the retry configuration is usable
+function validate_retry_config() {
+	case "$MY_RETRY_STRATEGY" in
+		"none" | "linear" | "exponential")
+			;;
+		*)
+			exit_with_failure "Invalid retry strategy '$MY_RETRY_STRATEGY'. Use 'none', 'linear' or 'exponential'"
+			;;
+	esac
+
+	if ! [[ "$MY_RETRY_INTERVAL" =~ ^[0-9]+$ ]]; then
+		exit_with_failure "Invalid retry interval '$MY_RETRY_INTERVAL'. Use a non-negative integer"
+	fi
+
+	if ! [[ "$MY_RETRY_TOTAL" =~ ^[0-9]+$ ]]; then
+		exit_with_failure "Invalid retry total '$MY_RETRY_TOTAL'. Use a non-negative integer"
 	fi
 }
 
@@ -513,6 +540,139 @@ function save_history() {
 	fi
 }
 
+# run_monitor_check() runs one monitoring check and returns:
+# 0 for up, 80 for degraded script checks, non-zero for down.
+function run_monitor_check() {
+	local my_command="$1"
+	local my_hostname="$2"
+	local my_port="$3"
+	local my_ping_command
+	local my_ping6_command
+	local cmd
+	local http_status
+
+	if [[ "$my_command" = "ping" ]]; then
+		# Detect ping Version
+		ping &> /dev/null
+		# macOS:   64 = ping -n -t TIMEOUT
+		# GNU:      2 = ping -n -w TIMEOUT (-t TTL)
+		# OpenBSD:  1 = ping -n -w TIMEOUT (-t TTL)
+		if [ $? -gt 2 ] || [[ "$OSTYPE" == "freebsd"* ]]; then
+			# BSD ping
+			my_ping_command='ping -n -t'
+		else
+			# GNU or OpenBSD ping
+			my_ping_command='ping -n -w'
+		fi
+		if $my_ping_command "$MY_PING_TIMEOUT" -c "$MY_PING_COUNT" "$my_hostname" &> /dev/null; then
+			return 0
+		fi
+	elif [[ "$my_command" = "ping6" ]]; then
+		# Detect ping6 Version
+		ping6 &> /dev/null
+		# macOS:   64 = ping6 -n -t TIMEOUT
+		# GNU:      2 = ping6 -n -w TIMEOUT (-t TTL)
+		# OpenBSD:  1 = ping6 -n -w TIMEOUT (-t TTL)
+		if [ $? -gt 2 ] || [[ "$OSTYPE" == "freebsd"* ]]; then
+			# BSD ping6
+			my_ping6_command='ping6 -n -t'
+		else
+			# GNU or OpenBSD ping6
+			my_ping6_command='ping6 -n -w'
+		fi
+		if $my_ping6_command "$MY_PING_TIMEOUT" -c "$MY_PING_COUNT" "$my_hostname" &> /dev/null; then
+			return 0
+		fi
+	elif [[ "$my_command" = "nc" ]]; then
+		if nc -z -w "$MY_TIMEOUT" "$my_hostname" "$my_port" &> /dev/null; then
+			return 0
+		fi
+	elif [[ "$my_command" = "curl" ]]; then
+		if curl -If --max-time "$MY_TIMEOUT" "$my_hostname" &> /dev/null; then
+			return 0
+		fi
+	elif [[ "$my_command" = "http-status" ]]; then
+		http_status=$(curl -s -o /dev/null -I --max-time "$MY_TIMEOUT" -w "%{http_code}" "$my_hostname" 2>/dev/null)
+		if [[ "$http_status" == "$my_port" ]]; then
+			return 0
+		fi
+	elif [[ "$my_command" = "grep" ]]; then
+		if curl --no-buffer -fs --max-time "$MY_TIMEOUT" "$my_hostname" 2>/dev/null | grep -q "$my_port"; then
+			return 0
+		fi
+	elif [[ "$my_command" = "traceroute" ]]; then
+		if traceroute -w "$MY_TIMEOUT" -q "$MY_TRACEROUTE_NQUERIES" -m "$my_port" "$MY_TRACEROUTE_HOST" 2>/dev/null | grep -q "$my_hostname"; then
+			return 0
+		fi
+	elif [[ "$my_command" = "script" ]]; then
+		if [[ -x "$MY_STATUS_CONFIG_DIR/$my_hostname" ]]; then
+			cmd="$MY_STATUS_CONFIG_DIR/$my_hostname"
+		else
+			cmd="$my_hostname"
+		fi
+		(timeout --preserve-status "$MY_SCRIPT_TIMEOUT" "$cmd" &> /dev/null)
+		return "$?"
+	fi
+
+	return 1
+}
+
+# run_monitor_check_with_retries() retries failed checks according to config.
+function run_monitor_check_with_retries() {
+	local my_command="$1"
+	local my_hostname="$2"
+	local my_port="$3"
+	local retry_count="0"
+	local retry_delay="$MY_RETRY_INTERVAL"
+	local check_status
+
+	while true; do
+		run_monitor_check "$my_command" "$my_hostname" "$my_port"
+		check_status="$?"
+
+		if [[ "$check_status" -eq "0" ]]; then
+			return 0
+		fi
+		if [[ "$my_command" = "script" ]] && [[ "$check_status" -eq "80" ]]; then
+			return 80
+		fi
+		if [[ "$MY_RETRY_STRATEGY" = "none" ]] || [[ "$retry_count" -ge "$MY_RETRY_TOTAL" ]]; then
+			return "$check_status"
+		fi
+
+		(( retry_count++ ))
+		if [[ "$retry_delay" -gt "0" ]]; then
+			sleep "$retry_delay"
+		fi
+		if [[ "$MY_RETRY_STRATEGY" = "exponential" ]]; then
+			retry_delay="$((retry_delay * 2))"
+		fi
+	done
+}
+
+# save_monitor_result() stores the final result after retries are exhausted.
+function save_monitor_result() {
+	local check_status="$1"
+	local my_command="$2"
+	local my_hostname_string="$3"
+	local my_port="$4"
+
+	if [[ "$check_status" -eq "0" ]]; then
+		check_downtime "$my_command" "$my_hostname_string" "$my_port"
+		# Check status change
+		if [[ "$MY_DOWN_TIME" -gt "0" ]]; then
+			save_history  "$my_command" "$my_hostname_string" "$my_port" "$MY_DOWN_TIME" "$MY_DATE_TIME"
+		fi
+		save_availability "$my_command" "$my_hostname_string" "$my_port"
+	elif [[ "$my_command" = "script" ]] && [[ "$check_status" -eq "80" ]]; then
+		check_degradetime "$my_command" "$my_hostname_string"
+		save_degradetime "$my_command" "$my_hostname_string" "$MY_DEGRADE_TIME"
+	else
+		check_downtime "$my_command" "$my_hostname_string" "$my_port"
+		save_downtime "$my_command" "$my_hostname_string" "$my_port" "$MY_DOWN_TIME"
+	fi
+}
+
 
 ################################################################################
 # HTML
@@ -752,6 +912,8 @@ if [[ -n "$ONLY_OUTPUT_DEBUG_VARIABLES" ]]; then
 	exit
 fi
 
+validate_retry_config
+
 for MY_COMMAND in "${MY_COMMANDS[@]}"; do
 	check_command "$MY_COMMAND"
 done
@@ -805,146 +967,37 @@ while IFS=';' read -r MY_COMMAND MY_HOSTNAME_STRING MY_PORT || [[ -n "$MY_COMMAN
 	MY_HOSTNAME="${MY_HOSTNAME_STRING%%|*}" # remove alternative display textS
 	if [[ "$MY_COMMAND" = "ping" ]]; then
 		(( MY_HOSTNAME_COUNT++ ))
-		# Detect ping Version
-		ping &> /dev/null
-		# macOS:   64 = ping -n -t TIMEOUT
-		# GNU:      2 = ping -n -w TIMEOUT (-t TTL)
-		# OpenBSD:  1 = ping -n -w TIMEOUT (-t TTL)
-		if [ $? -gt 2 ] || [[ "$OSTYPE" == "freebsd"* ]]; then
-			# BSD ping
-			MY_PING_COMMAND='ping -n -t'
-		else
-			# GNU or OpenBSD ping
-			MY_PING_COMMAND='ping -n -w'
-		fi
-		if $MY_PING_COMMAND "$MY_PING_TIMEOUT" -c "$MY_PING_COUNT" "$MY_HOSTNAME" &> /dev/null; then
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
-			# Check status change
-			if [[ "$MY_DOWN_TIME" -gt "0" ]]; then
-				save_history  "$MY_COMMAND" "$MY_HOSTNAME_STRING" "" "$MY_DOWN_TIME" "$MY_DATE_TIME"
-			fi
-			save_availability "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
-		else
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
-			save_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "" "$MY_DOWN_TIME"
-		fi
+		run_monitor_check_with_retries "$MY_COMMAND" "$MY_HOSTNAME" ""
+		save_monitor_result "$?" "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
 	elif [[ "$MY_COMMAND" = "ping6" ]]; then
 		(( MY_HOSTNAME_COUNT++ ))
-		# Detect ping6 Version
-		ping6 &> /dev/null
-		# macOS:   64 = ping6 -n -t TIMEOUT
-		# GNU:      2 = ping6 -n -w TIMEOUT (-t TTL)
-		# OpenBSD:  1 = ping6 -n -w TIMEOUT (-t TTL)
-		if [ $? -gt 2 ] || [[ "$OSTYPE" == "freebsd"* ]]; then
-			# BSD ping6
-			MY_PING6_COMMAND='ping6 -n -t'
-		else
-			# GNU or OpenBSD ping6
-			MY_PING6_COMMAND='ping6 -n -w'
-		fi
-		if $MY_PING6_COMMAND "$MY_PING_TIMEOUT" -c "$MY_PING_COUNT" "$MY_HOSTNAME" &> /dev/null; then
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
-			# Check status change
-			if [[ "$MY_DOWN_TIME" -gt "0" ]]; then
-				save_history  "$MY_COMMAND" "$MY_HOSTNAME_STRING" "" "$MY_DOWN_TIME" "$MY_DATE_TIME"
-			fi
-			save_availability "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
-		else
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
-			save_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "" "$MY_DOWN_TIME"
-		fi
+		run_monitor_check_with_retries "$MY_COMMAND" "$MY_HOSTNAME" ""
+		save_monitor_result "$?" "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
 	elif [[ "$MY_COMMAND" = "nc" ]]; then
 		(( MY_HOSTNAME_COUNT++ ))
-		if nc -z -w "$MY_TIMEOUT" "$MY_HOSTNAME" "$MY_PORT" &> /dev/null; then
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-			# Check status change
-			if [[ "$MY_DOWN_TIME" -gt "0" ]]; then
-				save_history  "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME" "$MY_DATE_TIME"
-			fi
-			save_availability "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-		else
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-			save_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME"
-		fi
+		run_monitor_check_with_retries "$MY_COMMAND" "$MY_HOSTNAME" "$MY_PORT"
+		save_monitor_result "$?" "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
 	elif [[ "$MY_COMMAND" = "curl" ]]; then
 		(( MY_HOSTNAME_COUNT++ ))
-		if curl -If --max-time "$MY_TIMEOUT" "$MY_HOSTNAME" &> /dev/null; then
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
-			# Check status change
-			if [[ "$MY_DOWN_TIME" -gt "0" ]]; then
-				save_history  "$MY_COMMAND" "$MY_HOSTNAME_STRING" "" "$MY_DOWN_TIME" "$MY_DATE_TIME"
-			fi
-			save_availability "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
-		else
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
-			save_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "" "$MY_DOWN_TIME"
-		fi
+		run_monitor_check_with_retries "$MY_COMMAND" "$MY_HOSTNAME" ""
+		save_monitor_result "$?" "$MY_COMMAND" "$MY_HOSTNAME_STRING" ""
 	elif [[ "$MY_COMMAND" = "http-status" ]]; then
 		(( MY_HOSTNAME_COUNT++))
-		if [[ $(curl -s -o /dev/null -I --max-time "$MY_TIMEOUT" -w "%{http_code}" "$MY_HOSTNAME" 2>/dev/null) == "$MY_PORT" ]]; then
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-			# Check status change
-			if [[ "$MY_DOWN_TIME" -gt "0" ]]; then
-				save_history  "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME" "$MY_DATE_TIME"
-			fi
-			save_availability "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-		else
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-			save_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME"
-		fi
+		run_monitor_check_with_retries "$MY_COMMAND" "$MY_HOSTNAME" "$MY_PORT"
+		save_monitor_result "$?" "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
 	elif [[ "$MY_COMMAND" = "grep" ]]; then
 		(( MY_HOSTNAME_COUNT++ ))
-		if curl --no-buffer -fs --max-time "$MY_TIMEOUT" "$MY_HOSTNAME" | grep -q "$MY_PORT"  &> /dev/null; then
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-			# Check status change
-			if [[ "$MY_DOWN_TIME" -gt "0" ]]; then
-				save_history  "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME" "$MY_DATE_TIME"
-			fi
-			save_availability "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-		else
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-			save_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME"
-		fi
+		run_monitor_check_with_retries "$MY_COMMAND" "$MY_HOSTNAME" "$MY_PORT"
+		save_monitor_result "$?" "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
 	elif [[ "$MY_COMMAND" = "traceroute" ]]; then
 		(( MY_HOSTNAME_COUNT++ ))
 		MY_PORT=${MY_PORT:=64}
-		if traceroute -w "$MY_TIMEOUT" -q "$MY_TRACEROUTE_NQUERIES" -m "$MY_PORT" "$MY_TRACEROUTE_HOST" | grep -q "$MY_HOSTNAME"  &> /dev/null; then
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-			# Check status change
-			if [[ "$MY_DOWN_TIME" -gt "0" ]]; then
-				save_history  "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME" "$MY_DATE_TIME"
-			fi
-			save_availability "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-		else
-			check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-			save_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME"
-		fi
+		run_monitor_check_with_retries "$MY_COMMAND" "$MY_HOSTNAME" "$MY_PORT"
+		save_monitor_result "$?" "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
 	elif [[ "$MY_COMMAND" = "script" ]]; then
 		(( MY_HOSTNAME_COUNT++ ))
-		if [[ -x "$MY_STATUS_CONFIG_DIR/$MY_HOSTNAME" ]]; then
-			cmd="$MY_STATUS_CONFIG_DIR/$MY_HOSTNAME"
-		else
-			cmd="$MY_HOSTNAME"
-		fi
-		(timeout --preserve-status "$MY_SCRIPT_TIMEOUT" "$cmd" &> /dev/null)
-		case "$?" in
-			"0")
-				check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-				# Check status change
-				if [[ "$MY_DOWN_TIME" -gt "0" ]]; then
-					save_history  "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME" "$MY_DATE_TIME"
-				fi
-				save_availability "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-				;;
-			"80")
-				check_degradetime "$MY_COMMAND" "$MY_HOSTNAME_STRING"
-				save_degradetime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_DEGRADE_TIME"
-				;;
-			*)
-				check_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
-				save_downtime "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT" "$MY_DOWN_TIME"
-				;;
-		esac
+		run_monitor_check_with_retries "$MY_COMMAND" "$MY_HOSTNAME" "$MY_PORT"
+		save_monitor_result "$?" "$MY_COMMAND" "$MY_HOSTNAME_STRING" "$MY_PORT"
 	fi
 done <"$MY_HOSTNAME_FILE"
 

@@ -48,6 +48,12 @@ MY_PING_COUNT="2"
 # Duration we wait for response (only script).
 MY_SCRIPT_TIMEOUT="20"
 
+# Retry strategy for monitoring checks: none, linear or exponential.
+# MY_RETRY_TOTAL is the number of retries after the initial attempt.
+MY_RETRY_STRATEGY="none"        # none, linear or exponential
+MY_RETRY_INTERVAL="1"           # seconds between retries
+MY_RETRY_TOTAL="3"              # retries after the initial attempt
+
 # Route to host
 MY_TRACEROUTE_HOST="1.1.1.1" # Cloudflare DNS
 # Sets the number of probe packets per hop
