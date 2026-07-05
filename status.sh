@@ -715,9 +715,56 @@ function page_footer() {
 <hr class="mt-4">
 <footer>
 	<p>$MY_STATUS_FOOTER</p>
-	<p class="text-muted">$MY_DATE_TIME</p>
+	<p class="text-muted">Updated <span id="last-updated-relative" data-updated-at="$MY_TIMESTAMP">just now</span> - $MY_DATE_TIME</p>
 </footer>
 </div>
+<script>
+(function () {
+	var lastUpdated = document.getElementById('last-updated-relative');
+	if (!lastUpdated) {
+		return;
+	}
+
+	var updatedAt = Number(lastUpdated.getAttribute('data-updated-at')) * 1000;
+	if (!Number.isFinite(updatedAt)) {
+		return;
+	}
+
+	function formatRelativeTime(seconds) {
+		if (seconds < 5) {
+			return 'just now';
+		}
+
+		var units = [
+			['year', 31536000],
+			['month', 2592000],
+			['day', 86400],
+			['hour', 3600],
+			['minute', 60],
+			['second', 1]
+		];
+
+		for (var i = 0; i < units.length; i++) {
+			var unit = units[i][0];
+			var unitSeconds = units[i][1];
+			var value = Math.floor(seconds / unitSeconds);
+			if (value >= 1) {
+				return value + ' ' + unit + (value === 1 ? '' : 's') + ' ago';
+			}
+		}
+
+		return 'just now';
+	}
+
+	function updateRelativeTime() {
+		var seconds = Math.max(0, Math.floor((Date.now() - updatedAt) / 1000));
+		lastUpdated.textContent = formatRelativeTime(seconds);
+	}
+
+	updateRelativeTime();
+	window.setInterval(updateRelativeTime, 30000);
+}());
+</script>
 <!-- Powered by https://github.com/Cyclenerd/static_status -->
 </body>
 </html>
