@@ -14,6 +14,14 @@ MY_HOMEPAGE_TITLE="Homepage"
 # Auto refresh interval in seconds 0 is no refresh
 MY_AUTOREFRESH="0"
 
+# Minutes after which the status page is considered stale.
+# If the page was not refreshed within this time (e.g. cron did not run),
+# the banner switches to a warning that the page may be outdated,
+# even when all systems are operational.
+# The check happens in the browser (JavaScript) and uses the timestamp of the
+# last page generation. 0 disables the stale warning.
+MY_STALE_MINUTES="5"
+
 # Shortcut to place the configuration file in a folder.
 # Save it without / at the end.
 MY_STATUS_CONFIG_DIR="$HOME/status"

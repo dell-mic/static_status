@@ -93,6 +93,11 @@ MY_HOMEPAGE_TITLE=${MY_HOMEPAGE_TITLE:-"Homepage"}
 # Auto refresh interval in seconds 0 is no refresh
 MY_AUTOREFRESH=${MY_AUTOREFRESH:-"0"}
 
+# Minutes after which the page is considered stale (0 disables the stale warning).
+# If the page was not refreshed within this time, the banner switches to a warning
+# that the page may be outdated, even when all systems are operational.
+MY_STALE_MINUTES=${MY_STALE_MINUTES:-"5"}
+
 # Shortcut to place the configuration file in a folder.
 # Save it without / at the end.
 MY_STATUS_CONFIG_DIR=${MY_STATUS_CONFIG_DIR:-"$HOME/status"}
@@ -223,6 +228,7 @@ debug_variables() {
 	echo "MY_STATUS_TITLE: $MY_STATUS_TITLE"
 	echo "MY_STATUS_STYLESHEET: $MY_STATUS_STYLESHEET"
 	echo "MY_STATUS_FOOTER: $MY_STATUS_FOOTER"
+	echo "MY_STALE_MINUTES: $MY_STALE_MINUTES"
 	echo
 	echo "MY_STATUS_LOCKFILE: $MY_STATUS_LOCKFILE"
 	echo
@@ -285,6 +291,13 @@ function validate_retry_config() {
 
 	if ! [[ "$MY_RETRY_TOTAL" =~ ^[0-9]+$ ]]; then
 		exit_with_failure "Invalid retry total '$MY_RETRY_TOTAL'. Use a non-negative integer"
+	fi
+}
+
+# validate_stale_config() checks if the stale page warning configuration is usable
+function validate_stale_config() {
+	if ! [[ "$MY_STALE_MINUTES" =~ ^[0-9]+$ ]]; then
+		exit_with_failure "Invalid stale minutes '$MY_STALE_MINUTES'. Use a non-negative integer"
 	fi
 }
 
@@ -726,12 +739,12 @@ function page_footer() {
 </div>
 <script>
 (function () {
-	var lastUpdated = document.getElementById('last-updated-relative');
-	if (!lastUpdated) {
+	var lastUpdated = document.querySelectorAll('[data-updated-at]');
+	if (!lastUpdated.length) {
 		return;
 	}
 
-	var updatedAt = Number(lastUpdated.getAttribute('data-updated-at')) * 1000;
+	var updatedAt = Number(lastUpdated[0].getAttribute('data-updated-at')) * 1000;
 	if (!Number.isFinite(updatedAt)) {
 		return;
 	}
@@ -762,9 +775,60 @@ function page_footer() {
 		return 'just now';
 	}
 
+	var alertBox = document.getElementById('status-alert');
+	var staleNote = document.querySelector('[data-stale-note]');
+	var staleSeconds = 0;
+	if (alertBox) {
+		staleSeconds = Number(alertBox.getAttribute('data-stale-seconds'));
+		if (!Number.isFinite(staleSeconds) || staleSeconds < 0) {
+			staleSeconds = 0;
+		}
+	}
+
+	function formatDuration(seconds) {
+		var units = [
+			['day', 86400],
+			['hour', 3600],
+			['minute', 60],
+			['second', 1]
+		];
+		for (var i = 0; i < units.length; i++) {
+			var value = Math.floor(seconds / units[i][1]);
+			if (value >= 1) {
+				return value + ' ' + units[i][0] + (value === 1 ? '' : 's');
+			}
+		}
+		return '0 seconds';
+	}
+
+	function applyStaleness(seconds) {
+		if (!staleSeconds || seconds < staleSeconds) {
+			return;
+		}
+		if (staleNote) {
+			staleNote.classList.remove('d-none');
+		}
+		if (!alertBox || !alertBox.classList.contains('alert-success')) {
+			return;
+		}
+		alertBox.classList.remove('alert-success');
+		alertBox.classList.add('alert-warning');
+		var icon = alertBox.querySelector('i');
+		if (icon) {
+			icon.className = 'fa-solid fa-triangle-exclamation';
+		}
+		var text = alertBox.querySelector('[data-status-text]');
+		if (text) {
+			text.textContent = 'Page may be outdated - not refreshed in the last ' + formatDuration(seconds);
+		}
+	}
+
 	function updateRelativeTime() {
 		var seconds = Math.max(0, Math.floor((Date.now() - updatedAt) / 1000));
-		lastUpdated.textContent = formatRelativeTime(seconds);
+		for (var i = 0; i < lastUpdated.length; i++) {
+			lastUpdated[i].textContent = formatRelativeTime(seconds);
+		}
+		applyStaleness(seconds);
 	}
 
 	updateRelativeTime();
@@ -779,27 +843,27 @@ EOF
 
 function page_alert_success() {
 	cat >> "$MY_STATUS_HTML" << EOF
-<div class="alert alert-success d-flex justify-content-between align-items-center my-3" role="alert">
-	<span><i class="fa-solid fa-thumbs-up"></i> All systems are operational</span>
-	<span class="opacity-75" title="Last updated $MY_DATE_TIME">$MY_DATE_TIME</span>
+<div id="status-alert" data-stale-seconds="$((MY_STALE_MINUTES * 60))" class="alert alert-success d-flex justify-content-between align-items-center my-3" role="alert">
+	<span><i class="fa-solid fa-thumbs-up"></i> <span data-status-text>All systems are operational</span></span>
+	<span class="opacity-75" title="Last updated $MY_DATE_TIME" data-updated-at="$MY_TIMESTAMP">just now</span>
 </div>
 EOF
 }
 
 function page_alert_warning() {
 	cat >> "$MY_STATUS_HTML" << EOF
-<div class="alert alert-warning d-flex justify-content-between align-items-center my-3" role="alert">
-	<span><i class="fa-solid fa-triangle-exclamation"></i> Some systems are experiencing problems</span>
-	<span class="opacity-75" title="Last updated $MY_DATE_TIME">$MY_DATE_TIME</span>
+<div id="status-alert" data-stale-seconds="$((MY_STALE_MINUTES * 60))" class="alert alert-warning d-flex justify-content-between align-items-center my-3" role="alert">
+	<span><i class="fa-solid fa-triangle-exclamation"></i> Some systems are experiencing problems <span class="d-none badge rounded-pill text-bg-light border ms-2" data-stale-note><i class="fa-solid fa-clock-rotate-left"></i> Page may be outdated</span></span>
+	<span class="opacity-75" title="Last updated $MY_DATE_TIME" data-updated-at="$MY_TIMESTAMP">just now</span>
 </div>
 EOF
 }
 
 function page_alert_danger() {
 	cat >> "$MY_STATUS_HTML" << EOF
-<div class="alert alert-danger d-flex justify-content-between align-items-center my-3" role="alert">
-	<span><i class="fa-solid fa-fire-flame-curved"></i> Major Outage</span>
-	<span class="opacity-75" title="Last updated $MY_DATE_TIME">$MY_DATE_TIME</span>
+<div id="status-alert" data-stale-seconds="$((MY_STALE_MINUTES * 60))" class="alert alert-danger d-flex justify-content-between align-items-center my-3" role="alert">
+	<span><i class="fa-solid fa-fire-flame-curved"></i> Major Outage <span class="d-none badge rounded-pill text-bg-light border ms-2" data-stale-note><i class="fa-solid fa-clock-rotate-left"></i> Page may be outdated</span></span>
+	<span class="opacity-75" title="Last updated $MY_DATE_TIME" data-updated-at="$MY_TIMESTAMP">just now</span>
 </div>
 EOF
 }
@@ -807,9 +871,9 @@ EOF
 function page_alert_maintenance() {
 	cat >> "$MY_STATUS_HTML" << EOF
 <div class="card my-3">
-	<div class="card-header d-flex justify-content-between align-items-center">
-		<span><i class="fa-solid fa-wrench"></i> Maintenance</span>
-		<span class="opacity-75" title="Last updated $MY_DATE_TIME">$MY_DATE_TIME</span>
+	<div id="status-alert" data-stale-seconds="$((MY_STALE_MINUTES * 60))" class="card-header d-flex justify-content-between align-items-center">
+		<span><i class="fa-solid fa-wrench"></i> Maintenance <span class="d-none badge rounded-pill text-bg-light border ms-2" data-stale-note><i class="fa-solid fa-clock-rotate-left"></i> Page may be outdated</span></span>
+		<span class="opacity-75" title="Last updated $MY_DATE_TIME" data-updated-at="$MY_TIMESTAMP">just now</span>
 	</div>
 	<div class="card-body">
 EOF
@@ -988,6 +1052,7 @@ if [[ -n "$ONLY_OUTPUT_DEBUG_VARIABLES" ]]; then
 fi
 
 validate_retry_config
+validate_stale_config
 
 for MY_COMMAND in "${MY_COMMANDS[@]}"; do
 	check_command "$MY_COMMAND"
