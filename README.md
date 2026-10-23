@@ -131,7 +131,28 @@ Example:
 bash status.sh loud
 ```
 
-Execute a cron job every minute:
+## Cron ⏰
+
+This repository ships helper scripts that run the check, upload the status page and monitor the cron job itself:
+
+- `cron_update.sh` — runs `status.sh silent`, uploads the generated page and pings [healthchecks.io](https://healthchecks.io) as a dead man's switch (skipped if no `HEALTHCHECK_UUID` is set)
+- `cron_upload.sh` — uploads the generated status page via FTPS (used by `cron_update.sh`)
+
+Both read their credentials from the `.env` file (see `templates/.env.example`).
+
+**Recommended:** add `cron_update.sh` to your crontab:
+
+```shell
+crontab -e
+```
+
+Add:
+
+```text
+*/1 * * * * bash "/path/to/cron_update.sh" >> /dev/null
+```
+
+If you only want to run the checks without uploading (e.g. you host the status page on GitHub Pages), call `status.sh` directly instead:
 
 ```shell
 crontab -e
