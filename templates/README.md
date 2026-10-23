@@ -11,6 +11,7 @@ cp templates/config-example config
 cp templates/status_maintenance_text.txt .   # optional
 cp templates/status_past_maintenance_text.txt .   # optional
 cp templates/status_website_list.txt .       # optional, for scripts/check-websites.sh
+cp templates/.env.example .env               # optional, for cron_update.sh / cron_upload.sh
 ```
 
 The actual files in the status directory are **ignored by git** (see
@@ -25,3 +26,4 @@ upstream updates.
 | `status_maintenance_text.txt` | Message displayed during maintenance (degrades all errors) |
 | `status_past_maintenance_text.txt` | Message about past maintenance work |
 | `status_website_list.txt` | Website list for `scripts/check-websites.sh` |
+| `.env.example` | Credentials for the cron scripts (FTP upload + healthchecks.io ping) — fill in and save as `.env` |

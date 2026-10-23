@@ -19,6 +19,21 @@ Checking the route path is useful, for instance, if you have a backup mobile int
 In addition to the status web page, there is also a JSON version and an SVG icon.
 With the script `alert.sh`, you can be alerted by email, SMS or Pushover in case of a downtime.
 
+### About this repository 🔱
+
+This is a **fork** of [static_status](https://github.com/Cyclenerd/static_status).
+All credit for the original script goes to [Nils (Cyclenerd)](https://github.com/Cyclenerd) and the upstream contributors. 🙏
+
+Changes in this fork:
+
+- Relative "updated … ago" timestamps in the page footer
+- Relative timestamp in the status banner
+- Stale page warning: the banner switches to a warning if the page was not refreshed within `MY_STALE_MINUTES` (default: 5, `0` disables)
+- Configurable retry strategy for monitoring checks (none, linear, exponential)
+- `templates/` folder with all configuration and message templates (local configuration files are git-ignored)
+- `generated/` folder for runtime output (git-ignored)
+- Cron deployment scripts: `cron_update.sh` and `cron_upload.sh` (FTPS upload, optional healthchecks.io dead man's switch, credentials in `.env`)
+
 ##  Installation 📦
 
 By default, it's a good practice to create a `status` directory within your home directory and place everything in it :
@@ -27,23 +42,46 @@ mkdir ~/status
 cd ~/status
 ```
 
-### 1️⃣ Download Script
+Two ways to install: **clone the repository** (recommended — includes the templates, helper scripts and easy updates via `git pull`) or **download only the required files** manually.
+
+### Option A: Clone the repository 📥
+
+```shell
+git clone https://github.com/dell-mic/static_status.git
+cd static_status
+```
+
+Copy the configuration templates and customize them (see step 3️⃣ below):
+```shell
+cp templates/status_hostname_list.txt .
+cp templates/config-example config
+```
+
+> 💡 Your local configuration (`config`, `status_hostname_list.txt`, …) and all generated output (`generated/`) are git-ignored, so your changes survive `git pull` without conflicts.
+
+### Option B: Manual download 📄
+
+#### 1️⃣ Download Script
 
 Download Bash script `status.sh`:
 ```shell
-curl -O "https://raw.githubusercontent.com/Cyclenerd/static_status/master/status.sh"
+curl -O "https://raw.githubusercontent.com/dell-mic/static_status/master/status.sh"
 ```
 
 > 💡 Tip: Update works exactly the same way as the installation. Simply download the latest version of `status.sh`.
 
-### 2️⃣ Download Configuration
+#### 2️⃣ Download Configuration
 
-Copy the configuration template `status_hostname_list.txt` (or download it, if you
-installed `status.sh` without the repository):
+Download the configuration template `status_hostname_list.txt`:
 ```shell
-cp templates/status_hostname_list.txt .
-# or:
-curl -O "https://raw.githubusercontent.com/Cyclenerd/static_status/master/status_hostname_list.txt"
+curl -O "https://raw.githubusercontent.com/dell-mic/static_status/master/templates/status_hostname_list.txt"
+```
+
+Optionally, download the example configuration file as `config`:
+```shell
+curl \
+  -f "https://raw.githubusercontent.com/dell-mic/static_status/master/templates/config-example" \
+  -o "config"
 ```
 
 ### 3️⃣ Customize
@@ -55,19 +93,7 @@ vi status_hostname_list.txt
 
 ### Optional
 
-Edit the script `status.sh`, or better add more configuration to the configuration file `config`.
-
-Copy the example configuration file (or download it, if you installed `status.sh`
-without the repository):
-```shell
-cp templates/config-example config
-# or:
-curl \
-  -f "https://raw.githubusercontent.com/Cyclenerd/static_status/master/config-example" \
-  -o "config"
-```
-
-Customize the configuration file:
+Edit the script `status.sh`, or better add more configuration to the configuration file `config`:
 ```shell
 vi config
 ```
