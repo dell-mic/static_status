@@ -66,6 +66,16 @@ Customize the configuration file:
 vi config
 ```
 
+#### Retries
+
+Monitoring checks can be retried before a failure is reported. Retries are disabled by default.
+
+```shell
+MY_RETRY_STRATEGY="exponential"        # none, linear or exponential
+MY_RETRY_INTERVAL="1"                  # seconds between retries
+MY_RETRY_TOTAL="3"                     # retries after the initial attempt
+```
+
 ### Run
 
 ```shell

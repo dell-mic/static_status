@@ -15,4 +15,4 @@ jobs:
       - name: Checkout 🛎️
         uses: actions/checkout@v7
       - name: ShellCheck 🔎
-        run: shellcheck status.sh
+        run: shellcheck status.sh test-retry.sh
