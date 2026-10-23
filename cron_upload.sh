@@ -16,5 +16,5 @@ fi
 
 # Upload the status page via FTPS (FTP with explicit TLS, port 21).
 # Credentials and file content are encrypted in transit.
-FILE='index.html'
+FILE='generated/index.html'
 curl -sS --fail --ssl-reqd -m 60 --user "$USER:$PASSWD" -T "$FILE" "ftp://$HOST/"

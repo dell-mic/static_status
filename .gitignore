@@ -7,3 +7,7 @@ status_hostname_ok.txt
 *.html
 config
 .env
+
+# Runtime-generated files (output of status.sh)
+generated/*
+!generated/.gitkeep
