@@ -38,8 +38,11 @@ curl -O "https://raw.githubusercontent.com/Cyclenerd/static_status/master/status
 
 ### 2️⃣ Download Configuration
 
-Download configuration file `status_hostname_list.txt`:
+Copy the configuration template `status_hostname_list.txt` (or download it, if you
+installed `status.sh` without the repository):
 ```shell
+cp templates/status_hostname_list.txt .
+# or:
 curl -O "https://raw.githubusercontent.com/Cyclenerd/static_status/master/status_hostname_list.txt"
 ```
 
@@ -54,8 +57,11 @@ vi status_hostname_list.txt
 
 Edit the script `status.sh`, or better add more configuration to the configuration file `config`.
 
-Download the example configuration file:
+Copy the example configuration file (or download it, if you installed `status.sh`
+without the repository):
 ```shell
+cp templates/config-example config
+# or:
 curl \
   -f "https://raw.githubusercontent.com/Cyclenerd/static_status/master/config-example" \
   -o "config"

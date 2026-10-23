@@ -11,3 +11,9 @@ config
 # Runtime-generated files (output of status.sh)
 generated/*
 !generated/.gitkeep
+
+# Local configuration and message files (templates live in templates/)
+status_hostname_list.txt
+status_maintenance_text.txt
+status_past_maintenance_text.txt
+status_website_list.txt
