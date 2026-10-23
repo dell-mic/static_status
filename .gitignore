@@ -6,3 +6,4 @@ status_hostname_last.txt
 status_hostname_ok.txt
 *.html
 config
+.env
