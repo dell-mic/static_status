@@ -135,7 +135,7 @@ bash status.sh loud
 
 This repository ships helper scripts that run the check, upload the status page and monitor the cron job itself:
 
-- `cron_update.sh` — runs `status.sh silent`, uploads the generated page and pings [healthchecks.io](https://healthchecks.io) as a dead man's switch (skipped if no `HEALTHCHECK_UUID` is set)
+- `cron_update.sh` — runs `status.sh silent`, uploads the generated page and pings [healthchecks.io](https://healthchecks.io) as a dead man's switch (skipped if no `HEALTHCHECK_UUID` is set). The ping always fires: plain on success, `/fail` when any step failed. Failures are appended to a per-day error-only log under `/home/pi/media/cron-logs/`; successful runs stay silent.
 - `cron_upload.sh` — uploads the generated status page via FTPS (used by `cron_update.sh`)
 
 Both read their credentials from the `.env` file (see `templates/.env.example`).
