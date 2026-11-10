@@ -17,3 +17,4 @@ status_hostname_list.txt
 status_maintenance_text.txt
 status_past_maintenance_text.txt
 status_website_list.txt
+*.bak-*
