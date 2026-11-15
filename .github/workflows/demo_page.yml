@@ -1,7 +1,7 @@
 name: "Update status demo page"
 on:
   schedule:
-    - cron: "* 6 15 * *"
+    - cron: "17 6 15 * *"
   workflow_dispatch:
 
 jobs:
@@ -22,9 +22,10 @@ jobs:
           echo 'MY_MAINTENANCE_TEXT_FILE="status_maintenance_text.txt"' >> config
           echo 'MY_PAST_MAINTENANCE_TEXT_FILE="status_past_maintenance_text.txt"' >> config
           echo 'MY_HOSTNAME_FILE="status_hostname_list.txt"' >> config
-          echo 'This is a demo page of <a href="https://github.com/Cyclenerd/static_status">static_status</a>.' > status_maintenance_text.txt
+          echo 'This is a demo page of <a href="https://github.com/dell-mic/static_status">static_status</a>.' > status_maintenance_text.txt
           echo 'There is also a <a href="status.json">JSON version</a> and a <a href="status.svg">SVG icon</a> of this status page.' >> status_maintenance_text.txt
           echo 'This status page was generated with GitHub Action.' >> status_maintenance_text.txt
+          echo 'No maintenance in the past.' > status_past_maintenance_text.txt
           echo 'curl;https://www.heise.de/ping|www.heise.de (curl)' > status_hostname_list.txt
           echo 'curl;ftp://ftp.usa.openbsd.org/pub/OpenBSD/timestamp|ftp.usa.openbsd.org (curl)' >> status_hostname_list.txt
           echo 'nc;8.8.8.8|DNS @ Google (nc);53' >> status_hostname_list.txt
