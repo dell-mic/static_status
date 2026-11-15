@@ -1,0 +1,184 @@
+<!DOCTYPE HTML>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<title>Status Page</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="robots" content="noindex, nofollow">
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20100%20100%22%3E%3Ctext%20y=%22.9em%22%20font-size=%2290%22%3E🚦%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<div class="container">
+<header class="d-flex flex-wrap align-items-center justify-content-between py-3 mb-4 border-bottom gap-2">
+	<h1 class="mb-0">Status Page</h1>
+	<div>
+		<a href="https://github.com/Cyclenerd/static_status" class="btn btn-primary" role="button"><i class="fa-solid fa-house-chimney"></i> Homepage</a>
+	</div>
+</header>
+<div class="card my-3">
+	<div id="status-alert" data-stale-seconds="300" class="card-header d-flex justify-content-between align-items-center">
+		<span><i class="fa-solid fa-wrench"></i> Maintenance <span class="d-none badge rounded-pill text-bg-light border ms-2" data-stale-note><i class="fa-solid fa-clock-rotate-left"></i> Page may be outdated</span></span>
+		<span class="opacity-75" title="Last updated 2026-11-15 14:15:02 UTC" data-updated-at="1794752102">just now</span>
+	</div>
+	<div class="card-body">
+This is a demo page of <a href="https://github.com/dell-mic/static_status">static_status</a>.
+There is also a <a href="status.json">JSON version</a> and a <a href="status.svg">SVG icon</a> of this status page.
+This status page was generated with GitHub Action.
+	</div>
+</div>
+<div class="my-3">
+	<ul class="list-group">
+		<li class="list-group-item list-group-item-danger">Outage</li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+Always down (/bin/false)
+<span class="badge rounded-pill text-bg-danger"><i class="fa-solid fa-xmark"></i> </span>
+</li>
+</ul></div>
+<div class="my-3">
+	<ul class="list-group">
+		<li class="list-group-item list-group-item-warning">Degraded</li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+Always degraded (exit 80)
+<span class="badge rounded-pill text-bg-warning"><i class="fa-solid fa-xmark"></i> </span>
+</li>
+</ul></div>
+<div class="my-3">
+	<ul class="list-group">
+		<li class="list-group-item list-group-item-success">Operational</li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+www.heise.de (curl)
+	<span class="badge rounded-pill text-bg-success"><i class="fa-solid fa-check"></i></span>
+</li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+ftp.usa.openbsd.org (curl)
+	<span class="badge rounded-pill text-bg-success"><i class="fa-solid fa-check"></i></span>
+</li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+DNS @ Google (nc)
+	<span class="badge rounded-pill text-bg-success"><i class="fa-solid fa-check"></i></span>
+</li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+Always up (/bin/true)
+	<span class="badge rounded-pill text-bg-success"><i class="fa-solid fa-check"></i></span>
+</li>
+</ul></div>
+<div class="pb-2 mt-5 mb-3 border-bottom">
+	<h2>
+	<i class="fa-solid fa-screwdriver-wrench"></i>
+	Past Maintenance</h2>
+</div>
+<div class="card my-3">
+	<div class="card-body">
+No maintenance in the past.
+	</div>
+</div>
+<hr class="mt-4">
+<footer>
+	<p>Powered by <a href="https://github.com/Cyclenerd/static_status">static_status</a></p>
+	<p class="text-muted">Updated <span id="last-updated-relative" data-updated-at="1794752102">just now</span> - 2026-11-15 14:15:02 UTC</p>
+</footer>
+</div>
+<script>
+(function () {
+	var lastUpdated = document.querySelectorAll('[data-updated-at]');
+	if (!lastUpdated.length) {
+		return;
+	}
+
+	var updatedAt = Number(lastUpdated[0].getAttribute('data-updated-at')) * 1000;
+	if (!Number.isFinite(updatedAt)) {
+		return;
+	}
+
+	function formatRelativeTime(seconds) {
+		if (seconds < 5) {
+			return 'just now';
+		}
+
+		var units = [
+			['year', 31536000],
+			['month', 2592000],
+			['day', 86400],
+			['hour', 3600],
+			['minute', 60],
+			['second', 1]
+		];
+
+		for (var i = 0; i < units.length; i++) {
+			var unit = units[i][0];
+			var unitSeconds = units[i][1];
+			var value = Math.floor(seconds / unitSeconds);
+			if (value >= 1) {
+				return value + ' ' + unit + (value === 1 ? '' : 's') + ' ago';
+			}
+		}
+
+		return 'just now';
+	}
+
+	var alertBox = document.getElementById('status-alert');
+	var staleNote = document.querySelector('[data-stale-note]');
+	var staleSeconds = 0;
+	if (alertBox) {
+		staleSeconds = Number(alertBox.getAttribute('data-stale-seconds'));
+		if (!Number.isFinite(staleSeconds) || staleSeconds < 0) {
+			staleSeconds = 0;
+		}
+	}
+
+	function formatDuration(seconds) {
+		var units = [
+			['day', 86400],
+			['hour', 3600],
+			['minute', 60],
+			['second', 1]
+		];
+		for (var i = 0; i < units.length; i++) {
+			var value = Math.floor(seconds / units[i][1]);
+			if (value >= 1) {
+				return value + ' ' + units[i][0] + (value === 1 ? '' : 's');
+			}
+		}
+		return '0 seconds';
+	}
+
+	function applyStaleness(seconds) {
+		if (!staleSeconds || seconds < staleSeconds) {
+			return;
+		}
+		if (staleNote) {
+			staleNote.classList.remove('d-none');
+		}
+		if (!alertBox || !alertBox.classList.contains('alert-success')) {
+			return;
+		}
+		alertBox.classList.remove('alert-success');
+		alertBox.classList.add('alert-warning');
+		var icon = alertBox.querySelector('i');
+		if (icon) {
+			icon.className = 'fa-solid fa-triangle-exclamation';
+		}
+		var text = alertBox.querySelector('[data-status-text]');
+		if (text) {
+			text.textContent = 'Page may be outdated - not refreshed in the last ' + formatDuration(seconds);
+		}
+	}
+
+	function updateRelativeTime() {
+		var seconds = Math.max(0, Math.floor((Date.now() - updatedAt) / 1000));
+		for (var i = 0; i < lastUpdated.length; i++) {
+			lastUpdated[i].textContent = formatRelativeTime(seconds);
+		}
+		applyStaleness(seconds);
+	}
+
+	updateRelativeTime();
+	window.setInterval(updateRelativeTime, 30000);
+}());
+</script>
+<!-- Powered by https://github.com/Cyclenerd/static_status -->
+</body>
+</html>
