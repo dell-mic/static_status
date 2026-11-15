@@ -7,6 +7,9 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    # Fork default token is read-only; the gh-pages deploy needs write
+    permissions:
+      contents: write
     steps:
       - name: Dependencies 🔧
         run: sudo apt-get install curl iputils-ping traceroute netcat-openbsd grep sed
